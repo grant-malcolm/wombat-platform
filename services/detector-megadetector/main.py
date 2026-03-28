@@ -69,7 +69,7 @@ def _load_model() -> None:
     try:
         model_path = _download_model_if_needed()
         from megadetector.detection.pytorch_detector import PTDetector  # noqa: PLC0415
-        _model = PTDetector(model_path, force_cpu=True)
+        _model = PTDetector(model_path, detector_options={"force_cpu": True})
         logger.info("MegaDetector loaded successfully from %s", model_path)
     except Exception as exc:  # noqa: BLE001
         _model_error = f"{type(exc).__name__}: {exc}"
