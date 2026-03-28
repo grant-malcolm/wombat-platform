@@ -31,7 +31,7 @@ MODEL_ID = os.environ.get(
 )
 MODEL_DIR = os.environ.get("SPECIESNET_MODEL_DIR", "/models/speciesnet")
 DETECTOR_ID = "speciesnet-v4"
-DETECTOR_VERSION = "4.0.1"
+DETECTOR_VERSION = "5.0.3"
 
 _model = None
 _model_error: str | None = None
@@ -159,17 +159,23 @@ async def detect(file: UploadFile = File(...)):
 
 def _run_inference(image_path: str) -> dict:
     """Run SpeciesNet inference and return the standard detector response."""
-    instances = [{"filepath": image_path}]
-    results = _model.predict(instances=instances)
+    from PIL import Image  # noqa: PLC0415
+    from speciesnet import BBox  # noqa: PLC0415
 
-    # SpeciesNet returns {"predictions": [{"label": "...", "score": 0.xx, ...}]}
-    # The label format is a semicolon-separated taxonomy string:
-    #   kingdom;order;family;genus;species_binomial;common_name
-    predictions = results.get("predictions", [{}])
-    top = predictions[0] if predictions else {}
+    pil_image = Image.open(image_path).convert("RGB")
+    bbox = BBox(xmin=0.0, ymin=0.0, width=1.0, height=1.0)
+    preprocessed = _model.preprocess(pil_image, bboxes=[bbox])
+    results = _model.predict(image_path, preprocessed)
 
-    label: str = top.get("label", "") or top.get("species", "") or ""
-    score: float = float(top.get("score", top.get("confidence", 0.0)))
+    # SpeciesNet returns:
+    # {"classifications": {"classes": ["uuid;class;order;family;genus;species;common_name", ...],
+    #                       "scores": [0.87, ...]}}
+    classifications = results.get("classifications", {})
+    classes = classifications.get("classes", [])
+    scores = classifications.get("scores", [])
+
+    label: str = classes[0] if classes else ""
+    score: float = float(scores[0]) if scores else 0.0
 
     common, scientific = _parse_label(label)
 
@@ -185,7 +191,7 @@ def _run_inference(image_path: str) -> dict:
 def _parse_label(label: str) -> tuple[str, str]:
     """Convert a SpeciesNet taxonomy label to (common_name, scientific_name).
 
-    Expected format: "kingdom;order;family;genus;genus species;common name"
+    Expected format: "uuid;class;order;family;genus;species;common_name"
     Falls back gracefully for unexpected formats.
     """
     if not label:
@@ -193,14 +199,16 @@ def _parse_label(label: str) -> tuple[str, str]:
 
     parts = [p.strip() for p in label.split(";")]
 
-    if len(parts) >= 6:
-        scientific = parts[4].title() if parts[4] else parts[3].title()
-        common = parts[5].title() if parts[5] else scientific
+    if len(parts) >= 7:
+        genus = parts[4]
+        species_epithet = parts[5]
+        common = parts[6].title() if parts[6] else "Unknown"
+        # Build binomial: if species field already contains a space it's the full name
+        if " " in species_epithet:
+            scientific = species_epithet.title()
+        else:
+            scientific = f"{genus} {species_epithet}".strip().title()
         return common, scientific
-
-    if len(parts) >= 5:
-        scientific = parts[4].title()
-        return scientific, scientific
 
     # Last resort: use the whole label
     cleaned = label.replace(";", " ").strip().title()
