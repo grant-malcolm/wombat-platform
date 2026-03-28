@@ -25,6 +25,7 @@ VIDEO_CONTENT_TYPES = {"video/mp4", "video/quicktime", "video/x-msvideo", "video
 KNOWN_DETECTORS = {
     "placeholder": "http://detector-placeholder:8100",
     "speciesnet": "http://detector-speciesnet:8101",
+    "megadetector": settings.megadetector_url,
 }
 
 
@@ -57,6 +58,7 @@ def upload_media(file: UploadFile = File(...), db: Session = Depends(get_db)):
 
     frame_filename = f"{upload_id}.jpg"
     frame_path = media_dir / frame_filename
+    raw_filename = f"{upload_id}{suffix}"
 
     if media_type == "video":
         extract_frame(str(raw_path), str(frame_path))
@@ -76,6 +78,7 @@ def upload_media(file: UploadFile = File(...), db: Session = Depends(get_db)):
         original_filename=file.filename or "upload",
         media_type=media_type,
         stored_frame=frame_filename,
+        stored_media=raw_filename,
         species_name=result.get("species_common", "Unknown"),
         species_scientific=result.get("species_scientific"),
         confidence=result.get("confidence", 0.0),
@@ -223,11 +226,17 @@ def _check_detector_health(detector_id: str, base_url: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def _to_response(detection: Detection) -> DetectionResponse:
+    media_url = (
+        f"/media/{detection.stored_media}"
+        if detection.stored_media
+        else None
+    )
     return DetectionResponse(
         id=detection.id,
         original_filename=detection.original_filename,
         media_type=detection.media_type,
         frame_url=f"/media/{detection.stored_frame}",
+        media_url=media_url,
         species_name=detection.species_name,
         species_scientific=detection.species_scientific,
         confidence=detection.confidence,

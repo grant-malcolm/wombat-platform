@@ -10,6 +10,7 @@ class DetectionResponse(BaseModel):
     original_filename: str
     media_type: str
     frame_url: str
+    media_url: Optional[str] = None  # URL to original video/image file
     species_name: str
     species_scientific: Optional[str] = None
     confidence: float

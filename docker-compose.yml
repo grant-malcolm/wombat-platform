@@ -25,12 +25,22 @@ services:
     volumes:
       - speciesnet_cache:/app/.cache/huggingface
 
+  detector-megadetector:
+    build: ./services/detector-megadetector
+    ports:
+      - "8102:8102"
+    volumes:
+      - megadetector_models:/models/megadetector
+    environment:
+      SPECIESNET_URL: http://detector-speciesnet:8101
+
   backend:
     build: ./backend
     environment:
       DATABASE_URL: postgresql://wombat:wombat@db:5432/wombat
       MEDIA_DIR: /app/media
       ACTIVE_DETECTOR: speciesnet
+      MEGADETECTOR_URL: http://detector-megadetector:8102
     volumes:
       - media_data:/app/media
       - ./backend:/app
@@ -57,3 +67,4 @@ volumes:
   db_data:
   media_data:
   speciesnet_cache:
+  megadetector_models:

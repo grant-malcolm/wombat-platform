@@ -8,6 +8,11 @@ volume) on first startup. info.json is patched to point the detector field at a 
 dummy file so SpeciesNet does not re-download MegaDetector (~150 MB) — we only use
 the classifier component.
 
+Geolocation is hardcoded to Western Australia (AUS/WA) and fed to the SpeciesNet
+ensemble combiner so that geofencing correctly filters out species outside their
+known range (e.g. prefers Southern Brown Bandicoot / Quenda over Northern Brown
+Bandicoot for WA detections).
+
 POST /detect accepts a multipart image file and returns a species prediction.
 GET /health reports model load status.
 
@@ -33,7 +38,14 @@ MODEL_DIR = os.environ.get("SPECIESNET_MODEL_DIR", "/models/speciesnet")
 DETECTOR_ID = "speciesnet-v4"
 DETECTOR_VERSION = "5.0.3"
 
+# Hardcoded geolocation for Western Australia.
+GEOLOCATION = {
+    "country": "AUS",
+    "admin1_region": "Western Australia",
+}
+
 _model = None
+_ensemble = None
 _model_error: str | None = None
 
 
@@ -90,16 +102,17 @@ def _patch_info_json(model_dir: str) -> None:
 
 
 def _load_model():
-    global _model, _model_error
+    global _model, _ensemble, _model_error
     try:
         model_dir = _download_model_if_needed()
         _patch_info_json(model_dir)
 
-        logger.info("Loading SpeciesNetClassifier from %s", model_dir)
-        from speciesnet import SpeciesNetClassifier  # noqa: PLC0415
+        logger.info("Loading SpeciesNetClassifier and SpeciesNetEnsemble from %s", model_dir)
+        from speciesnet import SpeciesNetClassifier, SpeciesNetEnsemble  # noqa: PLC0415
 
         _model = SpeciesNetClassifier(model_name=model_dir, device="cpu")
-        logger.info("SpeciesNet model loaded successfully.")
+        _ensemble = SpeciesNetEnsemble(model_name=model_dir, geofence=True)
+        logger.info("SpeciesNet classifier and ensemble loaded successfully.")
     except Exception as exc:  # noqa: BLE001
         _model_error = f"{type(exc).__name__}: {exc}"
         logger.error("Failed to load SpeciesNet model: %s", _model_error)
@@ -158,24 +171,38 @@ async def detect(file: UploadFile = File(...)):
 
 
 def _run_inference(image_path: str) -> dict:
-    """Run SpeciesNet inference and return the standard detector response."""
+    """Run SpeciesNet inference with WA geolocation and return the standard detector response."""
     from PIL import Image  # noqa: PLC0415
     from speciesnet import BBox  # noqa: PLC0415
 
     pil_image = Image.open(image_path).convert("RGB")
     bbox = BBox(xmin=0.0, ymin=0.0, width=1.0, height=1.0)
     preprocessed = _model.preprocess(pil_image, bboxes=[bbox])
-    results = _model.predict(image_path, preprocessed)
+    classifier_result = _model.predict(image_path, preprocessed)
 
-    # SpeciesNet returns:
-    # {"classifications": {"classes": ["uuid;class;order;family;genus;species;common_name", ...],
-    #                       "scores": [0.87, ...]}}
-    classifications = results.get("classifications", {})
-    classes = classifications.get("classes", [])
-    scores = classifications.get("scores", [])
+    # Build ensemble inputs.
+    # We don't run a separate detector — supply a full-frame "animal" detection so
+    # the combiner treats the whole image as containing an animal and uses geofencing.
+    classifier_results = {image_path: classifier_result}
+    detector_results = {
+        image_path: {
+            "detections": [{"label": "animal", "conf": 1.0}]
+        }
+    }
+    geolocation_results = {image_path: GEOLOCATION}
 
-    label: str = classes[0] if classes else ""
-    score: float = float(scores[0]) if scores else 0.0
+    ensemble_results = _ensemble.combine(
+        filepaths=[image_path],
+        classifier_results=classifier_results,
+        detector_results=detector_results,
+        geolocation_results=geolocation_results,
+        partial_predictions={},
+    )
+
+    result = ensemble_results[0]
+    # The ensemble already converts Classification enums to their string values
+    label: str = result.get("prediction") or ""
+    score: float = float(result.get("prediction_score") or 0.0)
 
     common, scientific = _parse_label(label)
 
@@ -195,15 +222,22 @@ def _parse_label(label: str) -> tuple[str, str]:
     Falls back gracefully for unexpected formats.
     """
     if not label:
-        return "Unknown", "Unknown"
+        return "Unknown", ""
 
     parts = [p.strip() for p in label.split(";")]
 
     if len(parts) >= 7:
         genus = parts[4]
         species_epithet = parts[5]
-        common = parts[6].title() if parts[6] else "Unknown"
-        # Build binomial: if species field already contains a space it's the full name
+        common_raw = parts[6]
+
+        # Map special SpeciesNet non-species labels
+        if common_raw.lower() == "blank":
+            return "empty", ""
+        if common_raw.lower() in ("animal", "unknown", "human", "vehicle"):
+            return common_raw.title(), ""
+
+        common = common_raw.title() if common_raw else "Unknown"
         if " " in species_epithet:
             scientific = species_epithet.title()
         else:
@@ -212,4 +246,4 @@ def _parse_label(label: str) -> tuple[str, str]:
 
     # Last resort: use the whole label
     cleaned = label.replace(";", " ").strip().title()
-    return cleaned, cleaned
+    return cleaned, ""

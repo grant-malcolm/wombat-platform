@@ -16,6 +16,7 @@ class Detection(Base):
     original_filename = Column(String, nullable=False)
     media_type = Column(String, nullable=False)  # "image" | "video"
     stored_frame = Column(String, nullable=False)  # filename of the stored JPEG
+    stored_media = Column(String, nullable=True)   # filename of the original uploaded file (video/image)
 
     # AI prediction fields
     species_name = Column(String, nullable=False)       # common name

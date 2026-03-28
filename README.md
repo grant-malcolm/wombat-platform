@@ -18,14 +18,16 @@ WOMBAT is an open-source citizen science platform for automated wildlife monitor
 ## Architecture
 
 ```
-┌──────────────┐     POST /detect      ┌─────────────────────────┐
-│              │ ──────────────────────▶│  detector-placeholder   │  :8100
-│   backend    │                        │  (random AU species)    │
-│  FastAPI     │ ──────────────────────▶│  detector-speciesnet    │  :8101
-│  :8000       │     POST /detect       │  (SpeciesNet v4)        │
-│              │                        └─────────────────────────┘
-│              │──── PostgreSQL ─────────────────────────────────────────
-│              │──── /media (static) ────────────────────────────────────
+┌──────────────┐     POST /detect      ┌──────────────────────────────┐
+│              │ ──────────────────────▶│  detector-placeholder   :8100│
+│   backend    │                        │  (random AU species)         │
+│  FastAPI     │ ──────────────────────▶│  detector-speciesnet    :8101│
+│  :8000       │     POST /detect       │  (SpeciesNet v4 + geofence)  │
+│              │ ──────────────────────▶│  detector-megadetector  :8102│
+│              │                        │  (MegaDetector → SpeciesNet) │
+│              │                        └──────────────────────────────┘
+│              │──── PostgreSQL ──────────────────────────────────────────
+│              │──── /media (static) ─────────────────────────────────────
 └──────────────┘
        ▲
        │ /api/*
@@ -36,6 +38,16 @@ WOMBAT is an open-source citizen science platform for automated wildlife monitor
 ```
 
 The active detector is selected via the `ACTIVE_DETECTOR` environment variable on the backend. Adding a new AI model means deploying one more microservice behind the same `POST /detect` contract — the backend never changes.
+
+### Detector pipeline
+
+| Detector | Port | Description |
+|----------|------|-------------|
+| `placeholder` | 8100 | Returns a random Australian species — for development |
+| `speciesnet` | 8101 | SpeciesNet v4 classifier with WA geofencing via `SpeciesNetEnsemble` |
+| `megadetector` | 8102 | MegaDetector v5a pre-screens for animals; crops to best detection; classifies with SpeciesNet v4 |
+
+The MegaDetector pipeline short-circuits to `{"species_common": "empty"}` when no animals are detected, avoiding unnecessary SpeciesNet inference on empty frames.
 
 ---
 
@@ -82,6 +94,10 @@ Only **Verified** detections will be exported to ALA / BDR.
 | GET | `/api/detections/{id}` | Get single detection |
 | POST | `/api/detections/{id}/verify` | Submit review action |
 | GET | `/api/detectors/` | List detectors and health |
+| GET | `/api/stats/overview` | Quick stats (total, verified, pending, species count) |
+| GET | `/api/stats/species-over-time?days=7` | Time-series detections per species (verified) |
+| GET | `/api/stats/species-composition` | Species breakdown as % of verified detections |
+| GET | `/api/stats/activity-by-hour` | 24-hour detection histogram (all detections) |
 
 ### Verify request body
 
@@ -104,7 +120,7 @@ Only **Verified** detections will be exported to ALA / BDR.
 |-------|-----------|
 | Backend API | Python 3.12 / FastAPI |
 | Detector microservices | Python / FastAPI |
-| AI model | SpeciesNet v4 (Addax-Data-Science/SPECIESNET-v4-0-1-A-v1) |
+| AI models | SpeciesNet v4 (Addax-Data-Science/SPECIESNET-v4-0-1-A-v1), MegaDetector v5a |
 | Database | PostgreSQL 16 |
 | Media processing | FFmpeg + Pillow |
 | Frontend | React 18 / Vite 5 |
@@ -126,12 +142,15 @@ Frontend: http://localhost:5173
 Backend API: http://localhost:8001
 Placeholder detector: http://localhost:8100
 SpeciesNet detector: http://localhost:8101
+MegaDetector detector: http://localhost:8102
 
-### Switch to SpeciesNet
+### Switch detector
 
-Edit `.env`:
+Edit `.env` (or set the env var on the backend container):
 ```
-ACTIVE_DETECTOR=speciesnet
+ACTIVE_DETECTOR=speciesnet       # SpeciesNet v4 with WA geofencing
+ACTIVE_DETECTOR=megadetector     # MegaDetector v5a → SpeciesNet v4
+ACTIVE_DETECTOR=placeholder      # Random AU species (development)
 ```
 
 Then restart the backend:
@@ -139,7 +158,7 @@ Then restart the backend:
 docker compose restart backend
 ```
 
-> ⚠️ SpeciesNet downloads ~500 MB of model weights on first startup. On CPU, inference takes 30–60 s per image. Check readiness at http://localhost:8101/health.
+> ⚠️ SpeciesNet downloads ~500 MB of model weights on first startup. MegaDetector downloads ~250 MB. On CPU, inference takes 30–60 s per image. Check readiness at `/health` on each detector port.
 
 ---
 
@@ -150,9 +169,11 @@ docker compose restart backend
 - [x] Pluggable detector microservice architecture
 - [x] SpeciesNet v4 integration
 - [x] Human verification queue
+- [x] MegaDetector v5a pre-screening (empty frame detection + animal cropping)
+- [x] SpeciesNet geolocation / geofencing (Western Australia)
+- [x] Analytics dashboard (species over time, composition, activity by hour)
 - [ ] Multi-camera ingestion (Reolink, smartphone)
 - [ ] Occurrence mapping with RASD obfuscation
-- [ ] Analytics dashboard
 - [ ] Multi-user / camera registration
 - [ ] ALA and BDR Darwin Core export
 - [ ] iNaturalist cross-posting

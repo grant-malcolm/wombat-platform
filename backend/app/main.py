@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
-from app.api.routes import detections
+from app.api.routes import detections, stats
 from app.config import settings
 from app.database import Base, engine
 
@@ -28,6 +28,7 @@ def _run_migrations():
         "ALTER TABLE detections ADD COLUMN IF NOT EXISTS verified_species VARCHAR",
         "ALTER TABLE detections ADD COLUMN IF NOT EXISTS verified_species_scientific VARCHAR",
         "ALTER TABLE detections ADD COLUMN IF NOT EXISTS notes TEXT",
+        "ALTER TABLE detections ADD COLUMN IF NOT EXISTS stored_media VARCHAR",
     ]
     with engine.begin() as conn:
         for stmt in migrations:
@@ -56,3 +57,4 @@ app.add_middleware(
 
 app.include_router(detections.router, prefix="/api/detections", tags=["detections"])
 app.include_router(detections.detectors_router, prefix="/api/detectors", tags=["detectors"])
+app.include_router(stats.router, prefix="/api/stats", tags=["stats"])

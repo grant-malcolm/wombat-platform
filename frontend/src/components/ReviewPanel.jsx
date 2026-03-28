@@ -10,6 +10,7 @@ export default function ReviewPanel({ detection, onClose, onVerified }) {
   const [error, setError] = useState(null)
 
   const pct = Math.round(detection.confidence * 100)
+  const isVideo = detection.media_type === 'video'
   const displaySpecies = detection.species_name +
     (detection.species_scientific ? ` (${detection.species_scientific})` : '')
 
@@ -49,9 +50,22 @@ export default function ReviewPanel({ detection, onClose, onVerified }) {
       <div className="review-panel" onClick={(e) => e.stopPropagation()}>
         <button className="review-close" onClick={onClose} aria-label="Close">✕</button>
 
+        {/* Media: video player if from video, otherwise still frame */}
         <div className="review-media">
-          <img src={detection.frame_url} alt={detection.species_name} />
-          {detection.media_type === 'video' && (
+          {isVideo && detection.media_url ? (
+            <>
+              <video
+                src={detection.media_url}
+                controls
+                className="review-video"
+                playsInline
+              />
+              <p className="review-media-label">Source video</p>
+            </>
+          ) : (
+            <img src={detection.frame_url} alt={detection.species_name} />
+          )}
+          {isVideo && !detection.media_url && (
             <p className="review-media-label">Video frame</p>
           )}
         </div>
@@ -112,6 +126,7 @@ export default function ReviewPanel({ detection, onClose, onVerified }) {
                 >
                   <option value="placeholder">Placeholder</option>
                   <option value="speciesnet">SpeciesNet v4</option>
+                  <option value="megadetector">MegaDetector + SpeciesNet</option>
                 </select>
               </label>
             </div>
