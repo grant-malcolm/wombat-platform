@@ -2,4 +2,4 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 python-multipart==0.0.12
 pillow==10.4.0
-speciesnet @ git+https://huggingface.co/Addax-Data-Science/SPECIESNET-v4-0-1-A-v1
+speciesnet==5.0.3
