@@ -3,3 +3,4 @@ uvicorn[standard]==0.30.6
 python-multipart==0.0.12
 pillow==10.4.0
 speciesnet==5.0.3
+huggingface_hub

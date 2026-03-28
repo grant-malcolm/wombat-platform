@@ -3,12 +3,18 @@
 Wraps the SpeciesNet v4 model (Addax-Data-Science/SPECIESNET-v4-0-1-A-v1) behind
 the standard WOMBAT detector REST interface.
 
-The model is loaded once at startup. POST /detect accepts a multipart image file
-and returns a species prediction. GET /health reports model load status.
+The model is downloaded from HuggingFace to /models/speciesnet (a persistent Docker
+volume) on first startup. info.json is patched to point the detector field at a local
+dummy file so SpeciesNet does not re-download MegaDetector (~150 MB) — we only use
+the classifier component.
+
+POST /detect accepts a multipart image file and returns a species prediction.
+GET /health reports model load status.
 
 CPU inference is supported but may take 30–60 seconds per image.
 """
 
+import json
 import logging
 import os
 import tempfile
@@ -23,6 +29,7 @@ logging.basicConfig(level=logging.INFO)
 MODEL_ID = os.environ.get(
     "SPECIESNET_MODEL", "Addax-Data-Science/SPECIESNET-v4-0-1-A-v1"
 )
+MODEL_DIR = os.environ.get("SPECIESNET_MODEL_DIR", "/models/speciesnet")
 DETECTOR_ID = "speciesnet-v4"
 DETECTOR_VERSION = "4.0.1"
 
@@ -30,14 +37,68 @@ _model = None
 _model_error: str | None = None
 
 
+def _download_model_if_needed() -> str:
+    """Download model from HuggingFace to MODEL_DIR if not already cached.
+
+    Uses info.json as the sentinel — if it exists the download is considered complete.
+    Returns the local model directory path.
+    """
+    from huggingface_hub import snapshot_download  # noqa: PLC0415
+
+    model_dir = Path(MODEL_DIR)
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    if (model_dir / "info.json").exists():
+        logger.info("Model already cached at %s", model_dir)
+        return str(model_dir)
+
+    logger.info("Downloading SpeciesNet model from HuggingFace: %s → %s", MODEL_ID, model_dir)
+    snapshot_download(
+        repo_id=MODEL_ID,
+        local_dir=str(model_dir),
+        local_dir_use_symlinks=False,
+    )
+    logger.info("Model downloaded successfully.")
+    return str(model_dir)
+
+
+def _patch_info_json(model_dir: str) -> None:
+    """Replace any HTTP detector URL in info.json with a local dummy path.
+
+    SpeciesNet reads info.json at load time and downloads MegaDetector if the
+    detector field is a URL. Since we only use the classifier, we swap it for a
+    local dummy file to skip that download.
+    """
+    info_path = Path(model_dir) / "info.json"
+    if not info_path.exists():
+        logger.warning("info.json not found, skipping patch")
+        return
+
+    with open(info_path) as f:
+        info = json.load(f)
+
+    detector = info.get("detector")
+    if isinstance(detector, str) and detector.startswith("http"):
+        dummy = Path(model_dir) / "dummy_detector.pt"
+        dummy.touch()
+        info["detector"] = str(dummy)
+        with open(info_path, "w") as f:
+            json.dump(info, f, indent=2)
+        logger.info("Patched info.json: replaced %s with dummy local path", detector)
+    else:
+        logger.info("info.json detector field is not a URL, no patch needed")
+
+
 def _load_model():
     global _model, _model_error
     try:
-        logger.info("Importing speciesnet …")
-        from speciesnet import SpeciesNet  # noqa: PLC0415
+        model_dir = _download_model_if_needed()
+        _patch_info_json(model_dir)
 
-        logger.info("Loading model weights: %s", MODEL_ID)
-        _model = SpeciesNet(model_name=MODEL_ID)
+        logger.info("Loading SpeciesNetClassifier from %s", model_dir)
+        from speciesnet import SpeciesNetClassifier  # noqa: PLC0415
+
+        _model = SpeciesNetClassifier(model_name=model_dir, device="cpu")
         logger.info("SpeciesNet model loaded successfully.")
     except Exception as exc:  # noqa: BLE001
         _model_error = f"{type(exc).__name__}: {exc}"
