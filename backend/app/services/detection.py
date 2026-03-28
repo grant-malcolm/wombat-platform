@@ -1,47 +1,37 @@
-"""Placeholder species detector.
+"""Detector client.
 
-Returns randomised data from a curated list of Australian wildlife.
-Replace this module with MegaDetector + SpeciesNet integration.
+Calls the active detector microservice via HTTP and returns a standardised
+result dict with keys: species_common, species_scientific, confidence,
+detector_id, detector_version.
 """
 
-import random
+import httpx
 
-# (common_name, scientific_name)
-AUSTRALIAN_SPECIES = [
-    ("Eastern Grey Kangaroo", "Macropus giganteus"),
-    ("Red Kangaroo", "Osphranter rufus"),
-    ("Common Wombat", "Vombatus ursinus"),
-    ("Laughing Kookaburra", "Dacelo novaeguineae"),
-    ("Short-beaked Echidna", "Tachyglossus aculeatus"),
-    ("Common Brushtail Possum", "Trichosurus vulpecula"),
-    ("Common Ringtail Possum", "Pseudocheirus peregrinus"),
-    ("Sugar Glider", "Petaurus breviceps"),
-    ("Quokka", "Setonix brachyurus"),
-    ("Koala", "Phascolarctos cinereus"),
-    ("Platypus", "Ornithorhynchus anatinus"),
-    ("Wedge-tailed Eagle", "Aquila audax"),
-    ("Sulphur-crested Cockatoo", "Cacatua galerita"),
-    ("Emu", "Dromaius novaehollandiae"),
-    ("Eastern Blue-tongue Lizard", "Tiliqua scincoides"),
-    ("Lace Monitor", "Varanus varius"),
-    ("Spotted-tailed Quoll", "Dasyurus maculatus"),
-    ("Numbat", "Myrmecobius fasciatus"),
-    ("Bilby", "Macrotis lagotis"),
-]
+from app.config import settings
 
 
-def run_placeholder_detection(frame_path: str) -> dict:
-    """Return a random species detection result.
+def run_detection(frame_path: str, detector_id: str | None = None) -> dict:
+    """POST the frame to the active (or specified) detector microservice.
 
     Args:
-        frame_path: Path to the image file (unused by the placeholder).
+        frame_path: Absolute path to the JPEG frame to analyse.
+        detector_id: Override the active detector. Defaults to settings.active_detector.
 
     Returns:
-        Dict with ``species_name`` and ``confidence`` keys.
+        Dict with keys: species_common, species_scientific, confidence,
+        detector_id, detector_version.
+
+    Raises:
+        httpx.HTTPError: If the detector service is unreachable or returns an error.
     """
-    common, scientific = random.choice(AUSTRALIAN_SPECIES)
-    confidence = round(random.uniform(0.65, 0.99), 2)
-    return {
-        "species_name": f"{common} ({scientific})",
-        "confidence": confidence,
-    }
+    det_id = detector_id or settings.active_detector
+    url = f"{settings.detector_url(det_id)}/detect"
+
+    with open(frame_path, "rb") as fh:
+        response = httpx.post(
+            url,
+            files={"file": ("frame.jpg", fh, "image/jpeg")},
+            timeout=120.0,  # SpeciesNet on CPU can take ~60 s
+        )
+    response.raise_for_status()
+    return response.json()

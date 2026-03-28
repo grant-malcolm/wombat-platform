@@ -1,22 +1,30 @@
 import { useEffect, useState } from 'react'
 import DetectionResult from './components/DetectionResult'
+import ReviewPanel from './components/ReviewPanel'
 import UploadForm from './components/UploadForm'
+
+const FILTERS = ['all', 'pending', 'verified', 'rejected']
 
 export default function App() {
   const [latestDetection, setLatestDetection] = useState(null)
   const [detections, setDetections] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [filter, setFilter] = useState('all')
+  const [reviewing, setReviewing] = useState(null)
 
-  const fetchDetections = async () => {
-    const res = await fetch('/api/detections/')
+  const fetchDetections = async (statusFilter = 'all') => {
+    const url = statusFilter === 'all'
+      ? '/api/detections/'
+      : `/api/detections/?status=${statusFilter}`
+    const res = await fetch(url)
     const data = await res.json()
     setDetections(data)
   }
 
   useEffect(() => {
-    fetchDetections()
-  }, [])
+    fetchDetections(filter)
+  }, [filter])
 
   const handleUpload = async (file) => {
     setLoading(true)
@@ -35,7 +43,7 @@ export default function App() {
       }
       const detection = await res.json()
       setLatestDetection(detection)
-      fetchDetections()
+      fetchDetections(filter)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -43,11 +51,35 @@ export default function App() {
     }
   }
 
+  const handleVerified = (updated) => {
+    setReviewing(null)
+    // Replace in list
+    setDetections((prev) => prev.map((d) => d.id === updated.id ? updated : d))
+    if (latestDetection?.id === updated.id) setLatestDetection(updated)
+    // Refetch to respect active filter
+    fetchDetections(filter)
+  }
+
+  const pendingCount = detections.filter((d) => (d.status || 'pending') === 'pending').length
+
   return (
     <div className="app">
       <header>
-        <h1>WOMBAT</h1>
-        <p>Wildlife Observation and Monitoring with Biodiversity Aggregation Technology</p>
+        <div className="header-content">
+          <div>
+            <h1>WOMBAT</h1>
+            <p>Wildlife Observation and Monitoring with Biodiversity Aggregation Technology</p>
+          </div>
+          {pendingCount > 0 && (
+            <button
+              className="pending-badge"
+              onClick={() => setFilter('pending')}
+              title="Show pending detections"
+            >
+              {pendingCount} pending review
+            </button>
+          )}
+        </div>
       </header>
 
       <main>
@@ -60,17 +92,49 @@ export default function App() {
         {latestDetection && (
           <>
             <h2>Latest Detection</h2>
-            <DetectionResult detection={latestDetection} featured />
+            <DetectionResult
+              detection={latestDetection}
+              featured
+              onReview={setReviewing}
+            />
           </>
         )}
 
-        <h2>All Detections</h2>
+        <div className="feed-header">
+          <h2>Detections</h2>
+          <div className="filter-tabs">
+            {FILTERS.map((f) => (
+              <button
+                key={f}
+                className={`filter-tab${filter === f ? ' active' : ''}`}
+                onClick={() => setFilter(f)}
+              >
+                {f.charAt(0).toUpperCase() + f.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {detections.length === 0 ? (
-          <p className="empty-state">No detections yet. Upload an image or video to get started.</p>
+          <p className="empty-state">
+            {filter === 'all'
+              ? 'No detections yet. Upload an image or video to get started.'
+              : `No ${filter} detections.`}
+          </p>
         ) : (
-          detections.map((d) => <DetectionResult key={d.id} detection={d} />)
+          detections.map((d) => (
+            <DetectionResult key={d.id} detection={d} onReview={setReviewing} />
+          ))
         )}
       </main>
+
+      {reviewing && (
+        <ReviewPanel
+          detection={reviewing}
+          onClose={() => setReviewing(null)}
+          onVerified={handleVerified}
+        />
+      )}
     </div>
   )
 }
