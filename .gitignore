@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+.cache/
+
+# Media uploads (developer data, not source)
+media/
+
+# Environment — copy .env.example and fill in values
+.env
+
+# Docker
+.docker/
+
+# Editor
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
