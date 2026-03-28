@@ -1,148 +1,62 @@
-# WOMBAT
+WOMBAT 🦘
+Wildlife Observation and Monitoring with Biodiversity Aggregation Technology
+WOMBAT is an open-source citizen science platform for automated wildlife monitoring across Australia. Point a camera at your backyard, bush block, or farm — WOMBAT handles the rest.
+What it does
 
-**Wildlife Observation and Monitoring with Biodiversity Aggregation Technology**
+Ingests images and video from supported wildlife cameras via FTP/SFTP or direct upload
+Detects animals using MegaDetector
+Identifies species using SpeciesNet
+Stores detection stills and source video so you can watch animal behaviour, not just see a label
+Visualises species occurrences over time, across space, and by composition
+Aggregates data from distributed camera networks into a shared searchable dataset
+Exports occurrence records in Darwin Core format to the Atlas of Living Australia and the Biodiversity Data Repository
 
-An open-source citizen science platform for automated wildlife monitoring in Australia. Users upload images or videos from camera traps or mobile devices; the platform extracts a representative frame, runs species detection, and stores the results for review and aggregation.
+Why WOMBAT
+Existing wildlife camera platforms assume cameras produce still images. WOMBAT is built for the reality that modern cameras — including consumer devices like Reolink and Ring — produce video. The detection pipeline extracts frames for AI analysis, but the source video is always stored and playable. Watching a quenda forage or a quoll hunt is the hook that drives participation. The science happens in the background.
+Key features
 
----
+🎥 Video-first — stills for detection, video for engagement
+🗺️ Spatial mapping — occurrence hotspots with RASD-compliant location obfuscation for sensitive species
+📊 Analytics dashboard — species occurrence over time, composition charts, activity patterns
+🔒 Privacy by design — full coordinates stored internally, display precision governed by species sensitivity following the RASD framework
+🌏 Australia-wide — designed for Australian fauna and aligned with national biodiversity data infrastructure
+👥 Multi-user — participants register cameras, own their data, and choose their sharing licence (CC0 or CC-BY)
+🔌 Open source — MIT licensed, built to be contributed to
 
-## Architecture
+Supported cameras
+CameraConnectionMediaReolink Argus seriesFTP/SFTPJPEG, MP4Smartphone (Android/iOS)Direct uploadJPEGRingManual exportMP4
+More camera types will be added. Contributions welcome.
+Tech stack
 
-```
-Browser (React + Vite)
-        │
-        │ HTTP / multipart upload
-        ▼
-Backend (FastAPI)  ──►  PostgreSQL  (detections table)
-        │
-        ├──► Pillow          (normalise uploaded images → JPEG)
-        ├──► ffmpeg          (extract frame from video)
-        ├──► Detector        (MegaDetector + SpeciesNet — placeholder in v0.1)
-        └──► /app/media/     (local filesystem, S3-compatible later)
-```
+Backend: Python / FastAPI
+Database: PostgreSQL
+Queue: RabbitMQ
+Media storage: S3-compatible object storage
+Frontend: React
+AI pipeline: MegaDetector + SpeciesNet
+Containers: Docker Compose
 
-Services are orchestrated with **Docker Compose** for local development.
+Status
+🚧 Early prototype — actively under development.
+This is a proof of concept being developed to demonstrate the viability of a national citizen science wildlife video monitoring platform. We are actively seeking collaborators and institutional support.
+Roadmap
 
----
+ Walking skeleton — upload → detect → display
+ Video support with linked still/video detections
+ Multi-camera ingestion (Reolink, smartphone)
+ Occurrence mapping with RASD obfuscation
+ Analytics dashboard
+ Multi-user / camera registration
+ ALA and BDR export
+ iNaturalist cross-posting
 
-## Quick start
+Contributing
+Contributions are welcome. If you're interested in contributing or would like to discuss the project please open an issue or get in touch.
+Acknowledgements
+WOMBAT builds on MegaDetector by Dan Morris and SpeciesNet by Google. Location sensitivity guidance follows the RASD framework developed by the Atlas of Living Australia and partners.
+Licence
+MIT
 
-```bash
-git clone https://github.com/your-org/wombat.git
-cd wombat
+# wombat-platform
 
-# First run — builds images and starts all services
-docker compose up --build
-
-# Frontend:  http://localhost:5173
-# Backend:   http://localhost:8000
-# API docs:  http://localhost:8000/docs
-```
-
-The database schema is created automatically on first backend startup.
-
----
-
-## What has been built (v0.1 — walking skeleton)
-
-This release proves the end-to-end pipeline works before any real AI is integrated.
-
-| # | Capability | Notes |
-|---|-----------|-------|
-| 1 | **Image upload** | JPEG, PNG, WebP, GIF accepted; normalised to JPEG for storage |
-| 2 | **Video upload** | MP4, MOV, AVI, WebM accepted; representative frame extracted at 10 % of duration via ffmpeg |
-| 3 | **Placeholder detector** | Returns a random Australian species + confidence score (0.65 – 0.99). Drop-in replacement point for MegaDetector + SpeciesNet |
-| 4 | **PostgreSQL persistence** | `detections` table stores filename, media type, frame path, species, confidence, and timestamp |
-| 5 | **React UI** | Drag-and-drop upload, live result display, detection history list |
-
-### What is deliberately deferred
-
-- Real AI inference (MegaDetector + SpeciesNet)
-- RabbitMQ async processing queue
-- S3-compatible media storage
-- User accounts and authentication
-- Map view and aggregation dashboards
-- Alembic database migrations (schema managed via `create_all` for now)
-
----
-
-## Project layout
-
-```
-wombat/
-├── docker-compose.yml
-├── .env.example
-├── backend/
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   └── app/
-│       ├── main.py          # FastAPI app, lifespan, CORS, static media mount
-│       ├── config.py        # Pydantic settings (DATABASE_URL, MEDIA_DIR)
-│       ├── database.py      # SQLAlchemy engine + session factory
-│       ├── models.py        # Detection ORM model
-│       ├── schemas.py       # Pydantic response schemas
-│       ├── api/routes/
-│       │   └── detections.py   # POST /upload, GET /, GET /{id}
-│       └── services/
-│           ├── detection.py    # Placeholder detector (swap for real AI here)
-│           └── video.py        # ffmpeg frame extraction
-└── frontend/
-    ├── Dockerfile
-    ├── package.json
-    ├── vite.config.js       # Dev server + proxy to backend
-    └── src/
-        ├── App.jsx
-        ├── index.css
-        ├── main.jsx
-        └── components/
-            ├── UploadForm.jsx
-            └── DetectionResult.jsx
-```
-
----
-
-## API reference
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/detections/upload` | Upload image or video; returns detection result |
-| `GET`  | `/api/detections/` | List last 50 detections (newest first) |
-| `GET`  | `/api/detections/{id}` | Fetch a single detection by UUID |
-| `GET`  | `/media/{filename}` | Serve stored JPEG frame |
-
-Interactive docs: `http://localhost:8000/docs`
-
----
-
-## Development
-
-### Backend only (no Docker)
-
-```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-DATABASE_URL=postgresql://wombat:wombat@localhost:5432/wombat \
-MEDIA_DIR=./media \
-uvicorn app.main:app --reload
-```
-
-### Frontend only (no Docker)
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Update `vite.config.js` proxy target to `http://localhost:8000` if running the backend outside Docker.
-
----
-
-## Contributing
-
-Contributions are welcome. Please open an issue before submitting a large pull request so the approach can be discussed first.
-
-## Licence
-
-[Apache 2.0](LICENSE)
+Point a camera at your backyard, bush block, or farm. We handle the rest — species detection, mapping, aggregation. Watch your footage. Share your data. Contribute to Australian biodiversity science.
