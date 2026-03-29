@@ -34,6 +34,15 @@ services:
     environment:
       SPECIESNET_URL: http://detector-speciesnet:8101
 
+  detector-awc135:
+    build: ./services/detector-awc135
+    ports:
+      - "8103:8103"
+    volumes:
+      - awc135_models:/models/awc135
+    environment:
+      MEGADETECTOR_URL: http://detector-megadetector:8102
+
   backend:
     build: ./backend
     environment:
@@ -68,3 +77,4 @@ volumes:
   media_data:
   speciesnet_cache:
   megadetector_models:
+  awc135_models:
