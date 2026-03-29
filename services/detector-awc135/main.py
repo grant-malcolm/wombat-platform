@@ -1,7 +1,7 @@
 """AWC135 detector microservice.
 
 Uses MegaDetector to locate animals, then classifies each crop with the
-Australian Wildlife Conservancy's AWC-135 EfficientNetV2S classifier
+Australian Wildlife Conservancy's AWC-135 EfficientNet-B5 classifier
 (135 Australian species, ~1.1 M verified camera-trap training images).
 
 POST /detect    — full pipeline: MegaDetector bbox → AWC135 crop classify
@@ -47,7 +47,7 @@ DETECTOR_VERSION = "1.0"
 ANIMAL_CATEGORY = "1"  # MegaDetector: 1=animal, 2=human, 3=vehicle
 DETECTION_THRESHOLD = 0.1
 
-INPUT_SIZE = 480
+INPUT_SIZE = 456
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
@@ -97,7 +97,7 @@ def _load_model() -> None:
 
         import timm  # noqa: PLC0415
         model = timm.create_model(
-            "tf_efficientnetv2_m",
+            "tf_efficientnet_b5.ns_jft_in1k",
             pretrained=False,
             num_classes=len(_labels),
         )
@@ -234,7 +234,7 @@ def _crop_to_bbox(image_bytes: bytes, bbox: list[float]) -> Image.Image:
 
 def _classify(crop: Image.Image) -> tuple[str, float]:
     """Run AWC135 classifier on a PIL crop; return (label, confidence)."""
-    tensor = _transform(crop).unsqueeze(0)  # (1, 3, 480, 480)
+    tensor = _transform(crop).unsqueeze(0)  # (1, 3, 456, 456)
     with torch.no_grad():
         logits = _model(tensor)
         probs = torch.softmax(logits, dim=1)[0]
