@@ -186,7 +186,7 @@ def _run_inference(image_path: str) -> dict:
     classifier_results = {image_path: classifier_result}
     detector_results = {
         image_path: {
-            "detections": [{"label": "animal", "conf": 1.0}]
+            "detections": [{"category": "1", "label": "animal", "conf": 1.0, "bbox": [0.0, 0.0, 1.0, 1.0]}]
         }
     }
     geolocation_results = {image_path: GEOLOCATION}
