@@ -63,7 +63,9 @@ def upload_media(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if media_type == "video":
         extract_frame(str(raw_path), str(frame_path))
     else:
+        from PIL import ImageOps
         with Image.open(raw_path) as img:
+            img = ImageOps.exif_transpose(img)
             img.convert("RGB").save(frame_path, "JPEG", quality=85)
 
     try:
