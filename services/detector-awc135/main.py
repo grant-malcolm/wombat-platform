@@ -16,9 +16,11 @@ from pathlib import Path
 
 import httpx
 import torch
-import torchvision.transforms as T
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from PIL import Image
+
+# AWC helpers — preprocessing must match training exactly
+from awc_helpers.math_utils import crop_image, pil_to_tensor
 
 logger = logging.getLogger("awc135-detector")
 logging.basicConfig(level=logging.INFO)
@@ -47,9 +49,8 @@ DETECTOR_VERSION = "1.0"
 ANIMAL_CATEGORY = "1"  # MegaDetector: 1=animal, 2=human, 3=vehicle
 DETECTION_THRESHOLD = 0.1
 
-INPUT_SIZE = 456
-IMAGENET_MEAN = [0.485, 0.456, 0.406]
-IMAGENET_STD = [0.229, 0.224, 0.225]
+# Must match awc_helpers.math_utils.pil_to_tensor default
+RESIZE_SIZE = 300
 
 # ---------------------------------------------------------------------------
 # Global state
@@ -58,12 +59,6 @@ IMAGENET_STD = [0.229, 0.224, 0.225]
 _model = None
 _labels: list[str] = []
 _model_error: str | None = None
-
-_transform = T.Compose([
-    T.Resize((INPUT_SIZE, INPUT_SIZE)),
-    T.ToTensor(),
-    T.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-])
 
 
 # ---------------------------------------------------------------------------
@@ -214,27 +209,30 @@ async def _call_megadetector(
     data = resp.json()
     img = Image.open(io.BytesIO(image_bytes))
     w, h = img.size
-    # Prefer dimensions from response if present
     img_width = data.get("image_width", w)
     img_height = data.get("image_height", h)
     return data.get("detections", []), img_width, img_height
 
 
 def _crop_to_bbox(image_bytes: bytes, bbox: list[float]) -> Image.Image:
-    """Crop image to MegaDetector bbox [xmin, ymin, w, h] (normalised 0–1)."""
+    """Crop image to MegaDetector bbox [xmin, ymin, w, h] (normalised 0–1).
+
+    Uses awc_helpers.crop_image with square_crop=True to match training
+    preprocessing exactly — expands to the larger bbox dimension and
+    black-pads if the square extends beyond the image boundary.
+    """
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    w, h = img.size
-    xmin, ymin, bw, bh = bbox
-    left = max(0, int(xmin * w))
-    top = max(0, int(ymin * h))
-    right = min(w, int((xmin + bw) * w))
-    bottom = min(h, int((ymin + bh) * h))
-    return img.crop((left, top, right, bottom))
+    return crop_image(img, bbox, square_crop=True)
 
 
 def _classify(crop: Image.Image) -> tuple[str, float]:
-    """Run AWC135 classifier on a PIL crop; return (label, confidence)."""
-    tensor = _transform(crop).unsqueeze(0)  # (1, 3, 456, 456)
+    """Run AWC135 classifier on a PIL crop; return (label, confidence).
+
+    Uses awc_helpers.pil_to_tensor with resize_size=300 to match training:
+    center-crop via min ratio (fastai ResizeMethod.Crop), bilinear resize,
+    normalise to [0, 1] float32 — no ImageNet mean/std subtraction.
+    """
+    tensor = pil_to_tensor(crop, resize_size=RESIZE_SIZE)  # (1, 3, 300, 300)
     with torch.no_grad():
         logits = _model(tensor)
         probs = torch.softmax(logits, dim=1)[0]
